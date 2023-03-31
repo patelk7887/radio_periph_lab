@@ -20,7 +20,7 @@ A couple of other notes to smooth things along :
 - If you are experiencing long build times (i.e. waiting for an excessive amount of time for impl_1 to complete) this may be that you don't have enough memory to handle the level of parallelism that I asked for in the script.  Edit "impl.tcl" to change the line from "-jobs 7" to "-jobs 3" if you don't have 16GB of memory.  Your computer probably doesn't have enough memory to synthesize 7 things in parallel, and is constantly swapping to disk
 
 
-#TODO
+# TODO
 Need to double check scaling
 Need to make sure the test_radio.c file prints out the time (right now it just prints out number of clock cycles)
 Make the video
