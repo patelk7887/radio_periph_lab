@@ -130,6 +130,73 @@ COMPONENT dds_compiler_0
   );
     END COMPONENT;
 
+COMPONENT dds_compiler_1
+  PORT (
+    aclk : IN STD_LOGIC;
+    aresetn : IN STD_LOGIC;
+    s_axis_phase_tvalid : IN STD_LOGIC;
+    s_axis_phase_tdata : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    m_axis_data_tvalid : OUT STD_LOGIC;
+    m_axis_data_tdata : OUT STD_LOGIC_VECTOR(31 DOWNTO 0) 
+  );
+END COMPONENT;
+
+COMPONENT cmpy_0
+  PORT (
+    aclk : IN STD_LOGIC;
+    aresetn : IN STD_LOGIC;
+    s_axis_a_tvalid : IN STD_LOGIC;
+    s_axis_a_tdata : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    s_axis_b_tvalid : IN STD_LOGIC;
+    s_axis_b_tdata : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    m_axis_dout_tvalid : OUT STD_LOGIC;
+    m_axis_dout_tdata : OUT STD_LOGIC_VECTOR(31 DOWNTO 0) 
+  );
+END COMPONENT;
+
+COMPONENT fir_compiler_0
+  PORT (
+    aclk : IN STD_LOGIC;
+    s_axis_data_tvalid : IN STD_LOGIC;
+    s_axis_data_tready : OUT STD_LOGIC;
+    s_axis_data_tdata : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    m_axis_data_tvalid : OUT STD_LOGIC;
+    m_axis_data_tdata : OUT STD_LOGIC_VECTOR(47 DOWNTO 0) 
+  );
+END COMPONENT;
+
+COMPONENT fir_compiler_1
+  PORT (
+    aclk : IN STD_LOGIC;
+    s_axis_data_tvalid : IN STD_LOGIC;
+    s_axis_data_tready : OUT STD_LOGIC;
+    s_axis_data_tdata : IN STD_LOGIC_VECTOR(47 DOWNTO 0);
+    m_axis_data_tvalid : OUT STD_LOGIC;
+    m_axis_data_tdata : OUT STD_LOGIC_VECTOR(31 DOWNTO 0) 
+  );
+END COMPONENT;
+
+    signal counter : STD_LOGIC_VECTOR(31 downto 0);
+    signal reset : STD_LOGIC;
+    
+    signal signal_source_data : STD_LOGIC_VECTOR(31 downto 0) := (others => '0');
+    signal signal_tuner_data : STD_LOGIC_VECTOR(31 downto 0);
+    
+    signal signal_source_valid : STD_LOGIC;
+    signal signal_tuner_valid : STD_LOGIC;
+    
+    signal signal_mixer_data : STD_LOGIC_VECTOR(31 downto 0);
+    signal signal_mixer_valid : STD_LOGIC;    
+    
+    signal signal_stage1_ready : STD_LOGIC;
+    signal signal_stage2_ready : STD_LOGIC;    
+    
+    signal signal_stage1_data : STD_LOGIC_VECTOR(47 DOWNTO 0);
+    signal signal_stage1_valid : STD_LOGIC;
+    
+    signal signal_stage2_data : STD_LOGIC_VECTOR(31 DOWNTO 0);
+    signal signal_stage2_valid : STD_LOGIC;    
+    
 begin
 	-- I/O Connections assignments
 
@@ -365,13 +432,17 @@ begin
 	    loc_addr := axi_araddr(ADDR_LSB + OPT_MEM_ADDR_BITS downto ADDR_LSB);
 	    case loc_addr is
 	      when b"00" =>
+	      --ADC phase set
 	        reg_data_out <= slv_reg0;
 	      when b"01" =>
-	        reg_data_out <= x"DEADBEEF";
+	      --Tuner phase set
+	        reg_data_out <= x"BADDBEEF";
 	      when b"10" =>
+	      --DDS reset
 	        reg_data_out <= slv_reg2;
 	      when b"11" =>
-	        reg_data_out <= slv_reg3;
+	      --Timer register
+	        reg_data_out <= counter;
 	      when others =>
 	        reg_data_out  <= (others => '0');
 	    end case;
@@ -397,18 +468,70 @@ begin
 
 
 	-- Add user logic here
+--Invert the reset, since the spec says reset is active when there is a 1 written to the specified register, 
+--but the DDS is active high
+reset <= not(slv_reg2(0));
 
-your_instance_name : dds_compiler_0
+    process(S_AXI_ACLK) is
+    begin
+        if(rising_edge(S_AXI_ACLK)) then
+            counter <= std_logic_vector(unsigned(counter) + 1);
+        end if;
+    end process;
+
+source_dds : dds_compiler_0
   PORT MAP (
     aclk => s_axi_aclk,
-    aresetn => '1',
+    aresetn => reset,
     s_axis_phase_tvalid => '1',
-    s_axis_phase_tdata => slv_reg0,
-    m_axis_data_tvalid => m_axis_tvalid,
-    m_axis_data_tdata => m_axis_tdata
+    s_axis_phase_tdata => slv_reg0, --Input
+    m_axis_data_tvalid => signal_source_valid,--Output
+    m_axis_data_tdata => signal_source_data(15 downto 0) --Output
+  );
+  
+ tuner_dds : dds_compiler_1
+  PORT MAP (
+    aclk => s_axi_aclk,
+    aresetn => reset,    
+    s_axis_phase_tvalid => '1',
+    s_axis_phase_tdata => slv_reg1, --Input
+    m_axis_data_tvalid => signal_tuner_valid, --Output
+    m_axis_data_tdata => signal_tuner_data --Output
+  );
+
+complex_mixer : cmpy_0
+  PORT MAP (
+    aclk => s_axi_aclk,
+    aresetn => reset,
+    s_axis_a_tvalid => signal_source_valid,
+    s_axis_a_tdata => signal_source_data,
+    s_axis_b_tvalid => signal_tuner_valid,
+    s_axis_b_tdata => signal_tuner_data,
+    m_axis_dout_tvalid => signal_mixer_valid,
+    m_axis_dout_tdata => signal_mixer_data
   );
 
 
+stage1_fir : fir_compiler_0
+  PORT MAP (
+    aclk => s_axi_aclk,
+    s_axis_data_tvalid => signal_mixer_valid,
+    s_axis_data_tready => signal_stage1_ready,
+    s_axis_data_tdata => signal_mixer_data,
+    m_axis_data_tvalid => signal_stage1_valid,
+    m_axis_data_tdata => signal_stage1_data
+  );
+
+stage2_fir : fir_compiler_1
+  PORT MAP (
+    aclk => s_axi_aclk,
+    s_axis_data_tvalid => signal_stage1_valid,
+    s_axis_data_tready => signal_stage2_ready,
+    s_axis_data_tdata => signal_stage1_data,
+    m_axis_data_tvalid => m_axis_tvalid,
+    m_axis_data_tdata => signal_stage2_data
+  );
+m_axis_tdata <= signal_stage2_data(15 downto 0);
 	-- User logic ends
 
 end arch_imp;
