@@ -531,7 +531,8 @@ stage2_fir : fir_compiler_1
     m_axis_data_tvalid => m_axis_tvalid,
     m_axis_data_tdata => signal_stage2_data
   );
-m_axis_tdata <= signal_stage2_data(15 downto 0);
+--m_axis_tdata <= signal_stage2_data(15 downto 0);
+m_axis_tdata <= std_logic_vector(shift_left(signed(signal_stage2_data(15 downto 0)) , 3));
 	-- User logic ends
 
 end arch_imp;
